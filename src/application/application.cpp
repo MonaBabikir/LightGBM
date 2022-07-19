@@ -262,8 +262,7 @@ void Application::PredictStream() {
                       config_.predict_leaf_index, config_.predict_contrib,
                       config_.pred_early_stop, config_.pred_early_stop_freq,
                       config_.pred_early_stop_margin);
-  predictor.PredictStream(config_.data.c_str(),
-                    config_.output_result.c_str(), config_.header, config_.predict_disable_shape_check,
+  predictor.PredictStream(config_.data.c_str(), config_.header, config_.predict_disable_shape_check,
                     config_.precise_float_parser);
   Log::Info("Finished prediction");
 }

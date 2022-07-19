@@ -256,15 +256,14 @@ class Predictor {
   }
 
   /*!
-  * \brief predicting on data, then saving result to disk
+  * \brief Stream predicting on data, then printing result to stdout.
   * \param data_filename Filename of data
-  * \param result_filename Filename of output result
   */
-  void PredictStream(const char* data_filename, const char* result_filename, bool header, bool disable_shape_check, bool precise_float_parser) {
-    auto writer = VirtualFileWriter::Make(result_filename);
-    if (!writer->Init()) {
-      Log::Fatal("Prediction results file %s cannot be created", result_filename);
-    }
+  void PredictStream(const char* data_filename, bool header, bool disable_shape_check, bool precise_float_parser) {
+    // For now this parsing part is used to load different functions used later such as ParseOneLine(). 
+    // The input file is just used to create the parser once and the stdin will be used.
+    // Later this part can be removed and create other simpler functions to do the work.
+
     auto label_idx = header ? -1 : boosting_->LabelIdx();
     auto parser = std::unique_ptr<Parser>(Parser::CreateParser(data_filename, header, boosting_->MaxFeatureIdx() + 1, label_idx,
                                                                precise_float_parser, boosting_->ParserConfigStr()));
@@ -277,81 +276,44 @@ class Predictor {
                  "You can set ``predict_disable_shape_check=true`` to discard this error, but please be aware what you are doing.", parser->NumFeatures(), boosting_->MaxFeatureIdx() + 1);
     }
     TextReader<data_size_t> predict_data_reader(data_filename, header);
-    std::vector<int> feature_remapper(parser->NumFeatures(), -1);
-    bool need_adjust = false;
-    // skip raw feature remapping if trained model has parser config str which may contain actual feature names.
-    if (header && boosting_->ParserConfigStr().empty()) {
-      std::string first_line = predict_data_reader.first_line();
-      std::vector<std::string> header_words = Common::Split(first_line.c_str(), "\t,");
-      std::unordered_map<std::string, int> header_mapper;
-      for (int i = 0; i < static_cast<int>(header_words.size()); ++i) {
-        if (header_mapper.count(header_words[i]) > 0) {
-          Log::Fatal("Feature (%s) appears more than one time.", header_words[i].c_str());
-        }
-        header_mapper[header_words[i]] = i;
-      }
-      const auto& fnames = boosting_->FeatureNames();
-      for (int i = 0; i < static_cast<int>(fnames.size()); ++i) {
-        if (header_mapper.count(fnames[i]) <= 0) {
-          Log::Warning("Feature (%s) is missed in data file. If it is weight/query/group/ignore_column, you can ignore this warning.", fnames[i].c_str());
-        } else {
-          feature_remapper[header_mapper.at(fnames[i])] = i;
-        }
-      }
-      for (int i = 0; i < static_cast<int>(feature_remapper.size()); ++i) {
-        if (feature_remapper[i] >= 0 && i != feature_remapper[i]) {
-          need_adjust = true;
-          break;
-        }
-      }
-    }
-    // function for parse data
-    std::function<void(const char*, std::vector<std::pair<int, double>>*)> parser_fun;
-    double tmp_label;
-    parser_fun = [&parser, &feature_remapper, &tmp_label, need_adjust]
-    (const char* buffer, std::vector<std::pair<int, double>>* feature) {
-      parser->ParseOneLine(buffer, feature, &tmp_label);
-      if (need_adjust) {
-        int i = 0, j = static_cast<int>(feature->size());
-        while (i < j) {
-          if (feature_remapper[(*feature)[i].first] >= 0) {
-            (*feature)[i].first = feature_remapper[(*feature)[i].first];
-            ++i;
-          } else {
-            // move the non-used features to the end of the feature vector
-            std::swap((*feature)[i], (*feature)[--j]);
-          }
-        }
-        feature->resize(i);
-      }
-    };
 
-    std::function<void(data_size_t, const std::vector<std::string>&)>
-        process_fun = [&parser_fun, &writer, this](
-                          data_size_t, const std::vector<std::string>& lines) {
-      std::vector<std::pair<int, double>> oneline_features;
-      std::vector<std::string> result_to_write(lines.size());
-      OMP_INIT_EX();
-      #pragma omp parallel for schedule(static) firstprivate(oneline_features)
-      for (data_size_t i = 0; i < static_cast<data_size_t>(lines.size()); ++i) {
-        OMP_LOOP_EX_BEGIN();
-        oneline_features.clear();
+    // Streaming from standerd in/out
+    for (std::string line; std::getline(std::cin, line);) {
+      // function for parse data
+      std::function<void(const char*, std::vector<std::pair<int, double>>*)> parser_fun;
+      double tmp_label;
+      parser_fun = [&parser, &tmp_label]
+      (const char* buffer, std::vector<std::pair<int, double>>* feature) {
+        parser->ParseOneLine(buffer, feature, &tmp_label);
+      };
+
+      
+      std::function<void(data_size_t, const std::vector<std::string>&)>
+          process_fun = [&parser_fun, this, &line, &disable_shape_check](
+                            data_size_t, const std::vector<std::string>& lines) {
+        std::vector<std::pair<int, double>> oneline_features;
+        std::vector<std::string> result_to_write(lines.size());
         // parser
-        parser_fun(lines[i].c_str(), &oneline_features);
+          parser_fun(line.c_str(), &oneline_features);
+          if (!disable_shape_check && oneline_features.size() != boosting_->MaxFeatureIdx() + 1) {
+            Log::Warning("The number of features in data (%d) is not the same as it was in training data (%d).\n" \
+                 "You can set ``predict_disable_shape_check=true`` to discard this error, but please be aware what you are doing.", oneline_features.size(), boosting_->MaxFeatureIdx() + 1);
+          }
+          
         // predict
-        std::vector<double> result(num_pred_one_row_);
-        predict_fun_(oneline_features, result.data());
-        auto str_result = Common::Join<double>(result, "\t");
-        result_to_write[i] = str_result;
-        OMP_LOOP_EX_END();
-      }
-      OMP_THROW_EX();
-      for (data_size_t i = 0; i < static_cast<data_size_t>(result_to_write.size()); ++i) {
-        writer->Write(result_to_write[i].c_str(), result_to_write[i].size());
-        writer->Write("\n", 1);
-      }
-    };
-    predict_data_reader.ReadAllAndProcessParallel(process_fun);
+          std::vector<double> result(num_pred_one_row_);
+          predict_fun_(oneline_features, result.data());
+          
+          auto str_result = Common::Join<double>(result, "\t");
+          std::cout << str_result << std::endl;
+      };
+
+      // This function is needed to perform the above functions.
+      predict_data_reader.ReadAllAndProcessParallel(process_fun);
+
+      std::flush(std::cout);
+    }
+    
   }
 
  private:
