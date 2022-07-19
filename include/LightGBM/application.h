@@ -55,6 +55,9 @@ class Application {
   /*! \brief Main predicting logic */
   void Predict();
 
+  /*! \brief Main streampredicting logic */
+  void PredictStream();
+
   /*! \brief Main Convert model logic */
   void ConvertModel();
 
@@ -79,6 +82,9 @@ inline void Application::Run() {
   if (config_.task == TaskType::kPredict || config_.task == TaskType::KRefitTree) {
     InitPredict();
     Predict();
+  } else if (config_.task == TaskType::kPredictStream) {
+    InitPredict();
+    PredictStream();
   } else if (config_.task == TaskType::kConvertModel) {
     ConvertModel();
   } else {

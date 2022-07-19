@@ -32,7 +32,7 @@ Application::Application(int argc, char** argv) {
   LoadParameters(argc, argv);
   // set number of threads for openmp
   OMP_SET_NUM_THREADS(config_.num_threads);
-  if (config_.data.size() == 0 && config_.task != TaskType::kConvertModel) {
+  if (config_.data.size() == 0 && config_.task != TaskType::kConvertModel && config_.task != TaskType::kPredictStream) {
     Log::Fatal("No training/prediction data, application quit");
   }
 
@@ -254,6 +254,18 @@ void Application::Predict() {
                       config_.precise_float_parser);
     Log::Info("Finished prediction");
   }
+}
+
+void Application::PredictStream() {
+  // create predictor
+  Predictor predictor(boosting_.get(), config_.start_iteration_predict, config_.num_iteration_predict, config_.predict_raw_score,
+                      config_.predict_leaf_index, config_.predict_contrib,
+                      config_.pred_early_stop, config_.pred_early_stop_freq,
+                      config_.pred_early_stop_margin);
+  predictor.PredictStream(config_.data.c_str(),
+                    config_.output_result.c_str(), config_.header, config_.predict_disable_shape_check,
+                    config_.precise_float_parser);
+  Log::Info("Finished prediction");
 }
 
 void Application::InitPredict() {

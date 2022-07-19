@@ -106,6 +106,8 @@ void GetTaskType(const std::unordered_map<std::string, std::string>& params, Tas
     } else if (value == std::string("predict") || value == std::string("prediction")
                || value == std::string("test")) {
       *task = TaskType::kPredict;
+    } else if (value == std::string("predict_stream")) {
+      *task = TaskType::kPredictStream;
     } else if (value == std::string("convert_model")) {
       *task = TaskType::kConvertModel;
     } else if (value == std::string("refit") || value == std::string("refit_tree")) {
