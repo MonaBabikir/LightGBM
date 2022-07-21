@@ -27,7 +27,7 @@ namespace LightGBM {
 
 /*! \brief Types of tasks */
 enum TaskType {
-  kTrain, kPredict, kConvertModel, KRefitTree, kSaveBinary
+  kTrain, kPredict, kPredictStream, kConvertModel, KRefitTree, kSaveBinary
 };
 const int kDefaultNumLeaves = 31;
 

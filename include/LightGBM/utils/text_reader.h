@@ -304,18 +304,6 @@ class TextReader {
 
       return cnt;
     });
-    // if last line of file doesn't contain end of line
-    if (last_line_.size() > 0) {
-      Log::Info("Warning: last line of %s has no end of line, still using this line", filename_);
-      if (filter_fun(used_cnt, total_cnt)) {
-        lines_.push_back(last_line_);
-        process_fun(used_cnt, lines_);
-      }
-      lines_.clear();
-      ++total_cnt;
-      ++used_cnt;
-      last_line_ = "";
-    }
     return total_cnt;
   }
 
